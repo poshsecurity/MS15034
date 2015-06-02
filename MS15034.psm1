@@ -32,8 +32,7 @@ Function Test-MS15034
     try
     { $Result = Invoke-MS15034Helper -Computer $Computer -Port $Port -Path $SrvPath -LowerRange 0 -UpperRange 18446744073709551615 -UseSSL:$UseSSL }
     catch
-    #{ Throw ('An error occured during the connection to http://{0}:{1}{2}' -f $Computer, $Port, $SrvPath) }
-    { throw $_ }
+    { Throw ('An error occured during the connection to http://{0}:{1}{2}' -f $Computer, $Port, $SrvPath) }
 
     Write-Verbose -Message $Result
 
